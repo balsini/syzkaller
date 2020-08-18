@@ -4524,7 +4524,7 @@ static void setup_usb()
 #define CAST(f) ({void* p = (void*)f; p; })
 #endif
 
-#if SYZ_EXECUTOR || __NR_syz_fuse_handle_req
+#if SYZ_EXECUTOR || __NR_syz_fuse_handle_req || __NR_syz_fuse_do_passthrough
 #include <fcntl.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -4615,6 +4615,27 @@ struct fuse_out_header {
 	uint64 unique;
 };
 
+// Link the reponse to the request and send it to /dev/fuse.
+static int fuse_send_response(int fd,
+			      const struct fuse_in_header* in_hdr,
+			      struct fuse_out_header* out_hdr)
+{
+	if (!out_hdr) {
+		debug("fuse_send_response: received a NULL out_hdr\n");
+		return -1;
+	}
+
+	out_hdr->unique = in_hdr->unique;
+	if (write(fd, out_hdr, out_hdr->len) == -1) {
+		debug("fuse_send_response > write failed: %d\n", errno);
+		return -1;
+	}
+
+	return 0;
+}
+#endif
+
+#if SYZ_EXECUTOR || __NR_syz_fuse_handle_req
 // Struct shared between syz_fuse_handle_req() and the fuzzer. Used to provide
 // a fuzzed response for each request type.
 struct syz_fuse_req_out {
@@ -4635,25 +4656,6 @@ struct syz_fuse_req_out {
 	struct fuse_out_header* create_open;
 	struct fuse_out_header* ioctl;
 };
-
-// Link the reponse to the request and send it to /dev/fuse.
-static int fuse_send_response(int fd,
-			      const struct fuse_in_header* in_hdr,
-			      struct fuse_out_header* out_hdr)
-{
-	if (!out_hdr) {
-		debug("fuse_send_response: received a NULL out_hdr\n");
-		return -1;
-	}
-
-	out_hdr->unique = in_hdr->unique;
-	if (write(fd, out_hdr, out_hdr->len) == -1) {
-		debug("fuse_send_response > write failed: %d\n", errno);
-		return -1;
-	}
-
-	return 0;
-}
 
 // This function reads a request from /dev/fuse and tries to pick the correct
 // response from the input struct syz_fuse_req_out (a3). Responses are still
@@ -4954,5 +4956,80 @@ static long syz_80211_join_ibss(volatile long a0, volatile long a1, volatile lon
 
 	return 0;
 }
+#endif
 
+#if SYZ_EXECUTOR || __NR_syz_fuse_do_passthrough
+struct fuse_passthrough_out {
+	uint64_t unique;
+	uint32_t fd;
+	/* For future implementation */
+	uint32_t len;
+	void* vec;
+};
+
+#define FUSE_DEV_IOC_PASSTHROUGH_OPEN _IOW(229, 1, struct fuse_passthrough_out)
+
+static volatile long syz_fuse_do_passthrough(volatile long a0, // /dev/fuse fd.
+					     volatile long a1, // Read buffer.
+					     volatile long a2, // Buffer len.
+					     volatile long a3, // syz_fuse_passthrough_out.
+					     volatile long a4, // syz_fuse_create_open_out.
+					     volatile long a5) // syz_fuse_open_out.
+
+{
+	struct fuse_passthrough_out* pt_out = (struct fuse_passthrough_out*)a3;
+	struct fuse_out_header* open_create_out = (struct fuse_out_header*)a4;
+	struct fuse_out_header* open_out = (struct fuse_out_header*)a5;
+	struct fuse_out_header* out_hdr = NULL;
+	char* buf = (char*)a1;
+	int buf_len = (int)a2;
+	int fd = (int)a0;
+
+	if (!pt_out) {
+		debug("syz_fuse_do_ioctl: received a NULL syz_fuse_req_out\n");
+		return -1;
+	}
+	if (buf_len < FUSE_MIN_READ_BUFFER) {
+		debug("FUSE requires the read buffer to be at least %u\n", FUSE_MIN_READ_BUFFER);
+		return -1;
+	}
+
+	int ret = read(fd, buf, buf_len);
+	if (ret == -1) {
+		debug("syz_fuse_do_ioctl > read failed: %d\n", errno);
+		return -1;
+	}
+	// Safe to do because ret > 0 (!= -1) and < FUSE_MIN_READ_BUFFER (= 8192).
+	if ((size_t)ret < sizeof(struct fuse_in_header)) {
+		debug("syz_fuse_do_ioctl: received a truncated FUSE header\n");
+		return -1;
+	}
+
+	const struct fuse_in_header* in_hdr = (const struct fuse_in_header*)buf;
+	debug("syz_fuse_handle_req: received opcode %d\n", in_hdr->opcode);
+	if (in_hdr->len > (uint32)ret) {
+		debug("syz_fuse_do_ioctl: received a truncated message\n");
+		return -1;
+	}
+
+	pt_out->unique = in_hdr->unique;
+	ret = ioctl(fd, FUSE_DEV_IOC_PASSTHROUGH_OPEN, pt_out);
+	if (ret == -1) {
+		debug("syz_fuse_do_passthrough: ioctl failed: %d\n", errno);
+		return -1;
+	}
+	switch (in_hdr->opcode) {
+	case FUSE_OPEN:
+		out_hdr = open_out;
+		break;
+	case FUSE_CREATE:
+		out_hdr = open_create_out;
+		break;
+	default:
+		debug("syz_fuse_do_ioctl: unsupported FUSE opcode\n");
+		return -1;
+	}
+
+	return fuse_send_response(fd, in_hdr, out_hdr);
+}
 #endif

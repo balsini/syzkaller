@@ -294,6 +294,7 @@ var syzkallSupport = map[string]func(*prog.Syscall, *prog.Target, string) (bool,
 	"syz_fuse_handle_req":    isSyzFuseSupported,
 	"syz_80211_inject_frame": isWifiEmulationSupported,
 	"syz_80211_join_ibss":    isWifiEmulationSupported,
+	"syz_fuse_do_passthrough": isSyzFuseSupported,
 }
 
 func isSupportedSyzkall(c *prog.Syscall, target *prog.Target, sandbox string) (bool, string) {

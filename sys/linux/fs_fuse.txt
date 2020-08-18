@@ -12,6 +12,8 @@ resource fd_fuse[fd]
 openat$fuse(fd const[AT_FDCWD], file ptr[in, string["/dev/fuse"]], flags const[O_RDWR], mode const[0]) fd_fuse
 openat$cuse(fd const[AT_FDCWD], file ptr[in, string["/dev/cuse"]], flags const[O_RDWR], mode const[0]) fd_fuse
 ioctl$FUSE_DEV_IOC_CLONE(fd fd_fuse, cmd const[FUSE_DEV_IOC_CLONE], arg ptr[in, fd_fuse])
+ioctl$FUSE_DEV_IOC_PASSTHROUGH_OPEN(fd fd_fuse, cmd const[FUSE_DEV_IOC_PASSTHROUGH_OPEN], arg ptr[in, fuse_passthrough_out])
+syz_fuse_do_passthrough(fd fd_fuse, buf ptr[out, fuse_in[read_buffer]], len bytesize[buf], arg ptr[in, syz_fuse_passthrough_out], create_open ptr[in, syz_fuse_out[fuse_create_open_out]], open ptr[in, syz_fuse_out[fuse_open_out]])
 
 type read_buffer array[int8, FUSE_MIN_READ_BUFFER]
 read$FUSE(fd fd_fuse, buf ptr[out, fuse_in[read_buffer]], len bytesize[buf])
@@ -96,7 +98,7 @@ fuse_init_out {
 	unused			array[const[0, int32], 8]
 }
 
-fuse_init_flags = FUSE_ASYNC_READ, FUSE_POSIX_LOCKS, FUSE_FILE_OPS, FUSE_ATOMIC_O_TRUNC, FUSE_EXPORT_SUPPORT, FUSE_BIG_WRITES, FUSE_DONT_MASK, FUSE_SPLICE_WRITE, FUSE_SPLICE_MOVE, FUSE_SPLICE_READ, FUSE_FLOCK_LOCKS, FUSE_HAS_IOCTL_DIR, FUSE_AUTO_INVAL_DATA, FUSE_DO_READDIRPLUS, FUSE_READDIRPLUS_AUTO, FUSE_ASYNC_DIO, FUSE_WRITEBACK_CACHE, FUSE_NO_OPEN_SUPPORT, FUSE_PARALLEL_DIROPS, FUSE_HANDLE_KILLPRIV, FUSE_POSIX_ACL, FUSE_ABORT_ERROR, FUSE_MAX_PAGES, FUSE_CACHE_SYMLINKS, FUSE_NO_OPENDIR_SUPPORT, FUSE_EXPLICIT_INVAL_DATA
+fuse_init_flags = FUSE_ASYNC_READ, FUSE_POSIX_LOCKS, FUSE_FILE_OPS, FUSE_ATOMIC_O_TRUNC, FUSE_EXPORT_SUPPORT, FUSE_BIG_WRITES, FUSE_DONT_MASK, FUSE_SPLICE_WRITE, FUSE_SPLICE_MOVE, FUSE_SPLICE_READ, FUSE_FLOCK_LOCKS, FUSE_HAS_IOCTL_DIR, FUSE_AUTO_INVAL_DATA, FUSE_DO_READDIRPLUS, FUSE_READDIRPLUS_AUTO, FUSE_ASYNC_DIO, FUSE_WRITEBACK_CACHE, FUSE_NO_OPEN_SUPPORT, FUSE_PARALLEL_DIROPS, FUSE_HANDLE_KILLPRIV, FUSE_POSIX_ACL, FUSE_ABORT_ERROR, FUSE_MAX_PAGES, FUSE_CACHE_SYMLINKS, FUSE_NO_OPENDIR_SUPPORT, FUSE_EXPLICIT_INVAL_DATA, FUSE_MAP_ALIGNMENT, FUSE_PASSTHROUGH
 
 fuse_lseek_out {
 	offset	int64
@@ -111,6 +113,20 @@ fuse_ioctl_out {
 	flags		flags[fuse_ioctl_flags, int32]
 	in_iovs		int32
 	out_iovs	int32
+}
+
+fuse_passthrough_out {
+	unique	fuse_unique
+	fd	fd
+	len	const[0, int32]
+	vec	const[0, intptr]
+}
+
+syz_fuse_passthrough_out {
+	unique	int32
+	fd	fd
+	len	const[0, int32]
+	vec	const[0, intptr]
 }
 
 fuse_ioctl_flags = 0, FUSE_IOCTL_RETRY
